@@ -8,8 +8,6 @@ output:
 version: 1
 ---
 
-# 0. Instructions 
-
 *1. Remove the (italicised) guidance text but keep the section headings.*  
 *2. Add as many chunks of R code as required.*  
 *3. Where relevant summarise your answer to a section at the top of the section then add descriptions of your analysis plans and explanations of your code and findings. Please be detailed and where you have made choices explain the rationale for them. Avoid including any generic definitions.*  
@@ -17,6 +15,7 @@ version: 1
 *5. Your report should be clearly and professionally presented with appropriate use of cited external sources You report should respect the word counts in each section. (5 marks)*  
 *6. It should also be easy to understand, with well-documented code following the principles of literate programming. (5 marks)*
 
+# 0. Instructions 
 
 ```{r}
 library(DescTools)
@@ -39,12 +38,7 @@ library(tidyr)
 
 
 # 1. Organise and clean the data
-
 ## 1.1 Subset the data into the specific dataset allocated
- 
-*A description of the data set provided, its contents and which subset you should select is documented in the assessment brief at CS5801-Assessment Brief Template 2023-24.pdf*  
-
-*Use R code to correctly select the subset of data allocated. (5 marks)*  
 
 ```{r}
 # Only change the value for SID 
@@ -57,39 +51,19 @@ load("rental-analysis-data.Rda")
 # Pick every 40th observation starting from your offset
 # Put into your data frame named mydf (you can rename it)
 mydf <- rentals.analysis[seq(from=SIDoffset,to=nrow(rentals.analysis),by=40),]
-View(mydf)
 ```
 
 
 ## 1.2 Data quality analysis plan
- 
-*Provide a description of a comprehensive plan to assess the quality of this data. Include all variables/columns (5 marks) from the data set. (Max 200 words)*
 
 ```{r}
-#Data Quality analysis plan
-#check-for and identify any problems, and then determine and document the appropriate reponse.
-#(chapter 5.3 of Modern Data book )
-
-
-#This is a rental property dataset.
-#The aim of the analysis is to model rental property prices.
-
-#Assumptions:
-
-
-#2. using 'str()' function get all the information on the dimensions of the dataframe i.e. how many observations and variables, the names of all variables, and the datatype of all variables. Ensure all variables are of the right data type in context, and make note of those which are incorrect.
-#3. Using the 'head()' function display the first 6 records and all variables of the subset. 
-#4. Check that constraints are adhered to: 
-i) Using the constraint rule 'SID mod 40 + 1' calculate an expected value for the first row name. Check that the one in the dataframe matches the expected value. If not then make note.
-ii) the observations have a difference of 50 unique ID's between them
-#4. Identify all NA or missing records using is.na() function
-#5. Check for outliers (i.e. price too high, year far ahead in the future, invalid engine size, low mileage)
-#5. Ensure the data is valid in context i.e. they are all used cars.
-#using '' to check that variables under 'mileage' are all greater than 500.
-()
-
-ls()
-use ls() to generate a list of all functions in the R environment
+#1.	Using 'str()' function get all the information on the dimensions of the dataframe, documenting number of observations, variable names, and their data types. 
+#Find any inconsistencies in data types (via visual inspection) and correct them as is appropriate given the context, using the mutate() and across() functions. (Kabacoff, 2022).
+#2.	Display first six records using head() function to manually verify the data's validity and get an overview of the dataset's initial entries (Crawley, 2015).
+#3. Implement constraint rule 'SID mod 40 + 1' to calculate an expected value for the first row’s rowname. Ensure it matches the rowname in the dataframe. Check that subsequent observations have a consistent difference of 50 rownanes using diff() function (Mount & Zumel, 2019).
+#4.	Utilize is.na() to identify any missing values across all variables. Formulate appropriate handling methods (i.e. deletion) (Peng & Matsui, 2016).
+#5.	Perform outlier detection using statistical methods to identify anomalous values in key variables by forming a function that uses quartile() function. They can then be excluded by using the ! logical operator which means NOT to remove those rows with outliers from the database. (Kabacoff, 2022).
+#6.	Ensure all data entries are contextually valid. (Mount & Zumel, 2019).
 ```
 
 ## 1.3 Data quality analysis findings
@@ -98,7 +72,7 @@ use ls() to generate a list of all functions in the R environment
 
 ```{r}
 str(mydf)
-#Observations: There are 13 variables and 211 observations.
+#There are 13 variables and 211 observations.
 #The variables 'instant_booking_fee','cleaning_fee',are down as char but should be of data-type logical
 #(author, year)
 
@@ -107,17 +81,33 @@ head(mydf)
 
 expectedvalue<- (2358839 %% 40) + 1
 print(expectedvalue)
-
-difference<- (961-371)
+difference <- diff(mydf$row.names)
 print(difference)
 
-#Expected value doesnt match real value, and difference does not match constraint rule of 40.
+#Expected value doesnt match real value
+#difference does not match constraint rule of 40.
 
+NAfrommydf <- sapply(mydf, function(x) sum(is.na(x)))
+print(NAfrommydf)
 
+#This function highlights all the missing values across all variables in the dataframe.
+#Only the rating variable has any missing values - 48 total.
 
+outliersearch <- function(x) {
+	firstquantile <- quantile(x, 0.25)
+	thirdquantile <- quantile(x, 0.75)
+	InterQR <- thirdquantile - firstquantile
+	return(x < (firstquantile - 1.5 * InterQR) | x > (thirdquantile + 1.5 + InterQR))
+}
 
-
-
+outliers <- sapply(mydf %>% select(where(is.numeric)), outliersearch)
+print(outliers)
+#(IQR = Q3 - Q1, if a value is less than 1.5 times first quartile or greater than 1.5 times the third quartile then it's an outlier ) 
+#They can then be excluded by checking that the function found outliers and using the ! logical operator to remove those rows with outliers from the database. (Kabacoff, 2022).
+#These functions should give the outliers for each numeric variable.
+#It returns an error due to the presence of missing values.
+#Will use it again later.
+#All variables are contextually valid.
 ```
  
 ## 1.4 Data cleaning  
@@ -125,47 +115,105 @@ print(difference)
 *List and explain all the data quality issues found in 1.3 (5 marks)  NB even if no data quality issues are identified you should still check and report. Justify and document the way you have addressed each of the issues found (if any) (5 marks). (Max 200 words)*
 
 ```{r}
-newdf <- na.omit(mydf)
-head(newdf)
+#The variables 'instant_booking_fee','cleaning_fee',are down as char but should be of data-type logical
+mydf <- mydf %>%
+  mutate(instant_booking_fee = as.logical(instant_booking_fee),
+  cleaning_fee = as.logical(cleaning_fee)
+  )
+  
+#Expected value doesnt match real value
+# Step 1: Calculate the SIDoffset
+SID <- 2358839
+SIDoffset <- (SID %% 40) + 1
+
+# Step 2: Load the data from the Rda file
+load("rental-analysis-data.Rda")
+
+# Step 3: Subset the rentals.analysis data set
+original_row_names <- row.names(rentals.analysis)  # Store original row names
+
+# Ensure row names are numeric
+row.names(rentals.analysis) <- as.numeric(row.names(rentals.analysis))
+
+# Create a sequence of row names starting from SIDoffset and incrementing by 40
+indices <- which(row.names(rentals.analysis) %in% seq(SIDoffset, nrow(rentals.analysis), by = 40))
+
+# Subset the data frame using the generated indices
+mydf <- rentals.analysis[indices, ]
+row.names(mydf) <- original_row_names[indices]  # Restore original row names
+
+View(mydf)
+#Now the first observation in row.names matches the expected value.
+#difference does not match constraint rule of 40.
+#ONCE YOU'VE FIXED THE SUBSET ISSUES YOU MUST REAPPLY ALL THE DATA CLEANING PRIOR TO THAT STEP AGAIN.
+
+mydf <- mydf %>%
+  mutate(instant_booking_fee = as.logical(instant_booking_fee),
+  cleaning_fee = as.logical(cleaning_fee)
+  )
+
+
+#Only the rating variable has any missing values - 48 total.
+# Remove rows with NA values
+mydf <- na.omit(mydf)
+View(mydf)
+
+#These functions should give the outliers for each numeric variable.
+
+outliersearch <- function(x) {
+	firstquantile <- quantile(x, 0.25)
+	thirdquantile <- quantile(x, 0.75)
+	InterQR <- thirdquantile - firstquantile
+	return(x < (firstquantile - 1.5 * InterQR) | x > (thirdquantile + 1.5 * InterQR))
+}
+
+outliers <- sapply(mydf %>% select(where(is.numeric)), outliersearch)
+print(outliers)
+
+#There are 7 outliers; 
+#1 each in number_reviews, rating, bedrooms, price.
+#3 in bathrooms.
+#remove them
+
+#Check if any outlier is detected in each row
+outliercheck <- rowSums(outliers) > 0
+#rowSums(outliers) calculates the sum of values across rows in the outliers dataframe.
+#> 0 then checks if each row sum is greater than 0.
+
+#Filter mydf to remove rows with outliers
+mydf <- mydf[!outlierscheck, ]
+View(mydf)
+
 ```
 
 
-#(Ramzi W. N., 2024)
+
 
 # 2. Exploratory Data Analysis (EDA)
 
 ## 2.1 EDA plan
 
-*Outline a suitable plan to explore, describe and visualise your data. This plan should include appropriate summary statistics (uni- and multi-variate) and visualisations. The plan should also outline how you plan to explore the data with respect to the dependent variables  (5 marks) (Max 200 words)*  
-
 ```{r}
 #The plan is as follows:
-
-
 #1. Use summary() function to determine the mean, median, quartiles, variance, and standard dev. of the numerical variables,
 #as well as the frequency count and mode of categorical variables using the table() and mode() (after installing the DescTools package). Because table() and mode() work on vectors and not dataframes; use the sapply() function to apply them to each column of the dataframe. (Kabacoff R.I, 2022)
 #the correlation coefficients will be calculated using the rcorr() function in the Hmisc package which includes significance levels.
 #(Mount J., 2019)
-
 #2. visualise the distribution, relationships, and interactions of and between variables in the dataset. 
 #hist() function generates histograms 
 #barplot() function generates bar charts 
 #boxplot() function generates bar charts (Kabacoff R.I, 2022)
-
+***
 #plot() function generates scatterplots
 #cor() function generates a correlation matrix
 #pheatmap() function (which can be used after installing pheatmap package generates heatmaps for correlation matrices. (Peng R.D, 2016),
-
 #ggpairs() function (from the GGally package) is used to generare pair plots. (Mount J. & Zumel, 2019)
-
-
 #3. #Using the IQR method outlined by Kabacoff, I will first install the datasets package, then find the first and third quartile difference using the quantile() function. 
 #Any values that fall 1.5 times the IQR above the first quartile or below the third quartile is an outlier/anomaly which could affect the distribution of the dependent variables. (Kabacoff R.I, 2022)
 ```
 
 ## 2.2 EDA execution   
-
-*Undertake the data exploration plan outlined in 2.1 (5 marks) (Max 100 words)*
+*100 words
 
 ```{r}
 
@@ -173,16 +221,17 @@ head(newdf)
 #(Mount J., 2019)
 
 #1.1
-summary(newdf)
+summary(mydf)
+head(mydf)
 
-frequency_count <- sapply(newdf, table)
+frequency_count <- sapply(mydf, table)
 print(frequency_count)
 
-mode_results <- sapply(newdf, Mode)
+mode_results <- sapply(mydf, Mode)
 print(mode_results)
 
 #1.2
-rcorrmatrix <- rcorr(as.matrix(newdf))
+rcorrmatrix <- rcorr(as.matrix(mydf))
 print(rcorrmatrix)
   
 
