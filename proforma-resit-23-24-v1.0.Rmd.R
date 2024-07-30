@@ -18,6 +18,8 @@ version: 1
 # 0. Instructions 
 
 ```{r}
+library(GGally)
+library(pheatmap)
 library(DescTools)
 library(tm)
 library(rvest)
@@ -37,8 +39,7 @@ library(tidyr)
 ```
 
 
-# 1. Organise and clean the data
-## 1.1 Subset the data into the specific dataset allocated
+# 1.1
 
 ```{r}
 # Only change the value for SID 
@@ -51,10 +52,11 @@ load("rental-analysis-data.Rda")
 # Pick every 40th observation starting from your offset
 # Put into your data frame named mydf (you can rename it)
 mydf <- rentals.analysis[seq(from=SIDoffset,to=nrow(rentals.analysis),by=40),]
+View(mydf)
 ```
 
 
-## 1.2 Data quality analysis plan
+## 1.2 
 
 ```{r}
 #1.	Using 'str()' function get all the information on the dimensions of the dataframe, documenting number of observations, variable names, and their data types. 
@@ -92,16 +94,37 @@ print(NAfrommydf)
 
 #This function highlights all the missing values across all variables in the dataframe.
 #Only the rating variable has any missing values - 48 total.
+#We can't leave NA values in the dataframe but need to know how to handle them. The ratings could be NA as some people didn't bother to give the house a rating.
 
 outliersearch <- function(x) {
-	firstquantile <- quantile(x, 0.25)
-	thirdquantile <- quantile(x, 0.75)
-	InterQR <- thirdquantile - firstquantile
-	return(x < (firstquantile - 1.5 * InterQR) | x > (thirdquantile + 1.5 + InterQR))
+  firstquantile <- quantile(x, 0.25, na.rm = TRUE)
+  thirdquantile <- quantile(x, 0.75, na.rm = TRUE)
+  InterQR <- thirdquantile - firstquantile
+  return(x < (firstquantile - 1.5 * InterQR) | x > (thirdquantile + 1.5 * InterQR))
 }
 
 outliers <- sapply(mydf %>% select(where(is.numeric)), outliersearch)
 print(outliers)
+
+
+count_true_positions <- function(outlier_matrix) {
+  result <- list()
+  
+  for (col in colnames(outlier_matrix)) {
+    true_positions <- which(outlier_matrix[, col])
+    count_true <- length(true_positions)
+    result[[col]] <- list(count = count_true, positions = true_positions)
+  }
+  
+  return(result)
+}
+
+# Apply the function to the outliers matrix
+true_counts_positions <- count_true_positions(outliers)
+
+# Print the results
+print(true_counts_positions)
+
 #(IQR = Q3 - Q1, if a value is less than 1.5 times first quartile or greater than 1.5 times the third quartile then it's an outlier ) 
 #They can then be excluded by checking that the function found outliers and using the ! logical operator to remove those rows with outliers from the database. (Kabacoff, 2022).
 #These functions should give the outliers for each numeric variable.
@@ -115,12 +138,14 @@ print(outliers)
 *List and explain all the data quality issues found in 1.3 (5 marks)  NB even if no data quality issues are identified you should still check and report. Justify and document the way you have addressed each of the issues found (if any) (5 marks). (Max 200 words)*
 
 ```{r}
-#The variables 'instant_booking_fee','cleaning_fee',are down as char but should be of data-type logical
+#The variables 'instant_booking','cleaning_fee',are down as char but should be of data-type logical
+
 mydf <- mydf %>%
-  mutate(instant_booking_fee = as.logical(instant_booking_fee),
+  mutate(instant_booking = as.logical(instant_booking),
   cleaning_fee = as.logical(cleaning_fee)
   )
-  
+str(mydf)
+
 #Expected value doesnt match real value
 # Step 1: Calculate the SIDoffset
 SID <- 2358839
@@ -141,48 +166,19 @@ indices <- which(row.names(rentals.analysis) %in% seq(SIDoffset, nrow(rentals.an
 # Subset the data frame using the generated indices
 mydf <- rentals.analysis[indices, ]
 row.names(mydf) <- original_row_names[indices]  # Restore original row names
-
-View(mydf)
 #Now the first observation in row.names matches the expected value.
 #difference does not match constraint rule of 40.
-#ONCE YOU'VE FIXED THE SUBSET ISSUES YOU MUST REAPPLY ALL THE DATA CLEANING PRIOR TO THAT STEP AGAIN.
-
-mydf <- mydf %>%
-  mutate(instant_booking_fee = as.logical(instant_booking_fee),
-  cleaning_fee = as.logical(cleaning_fee)
-  )
-
 
 #Only the rating variable has any missing values - 48 total.
 # Remove rows with NA values
-mydf <- na.omit(mydf)
-View(mydf)
+#we determined the outliers using functions earlier.
+#Filter mydf to remove rows with outliers 
+#filter the result of this again in order to remove the na.1 na.2 and other na values as these will interfere with data analysis.
 
-#These functions should give the outliers for each numeric variable.
-
-outliersearch <- function(x) {
-	firstquantile <- quantile(x, 0.25)
-	thirdquantile <- quantile(x, 0.75)
-	InterQR <- thirdquantile - firstquantile
-	return(x < (firstquantile - 1.5 * InterQR) | x > (thirdquantile + 1.5 * InterQR))
-}
-
-outliers <- sapply(mydf %>% select(where(is.numeric)), outliersearch)
-print(outliers)
-
-#There are 7 outliers; 
-#1 each in number_reviews, rating, bedrooms, price.
-#3 in bathrooms.
-#remove them
-
-#Check if any outlier is detected in each row
-outliercheck <- rowSums(outliers) > 0
-#rowSums(outliers) calculates the sum of values across rows in the outliers dataframe.
-#> 0 then checks if each row sum is greater than 0.
-
-#Filter mydf to remove rows with outliers
-mydf <- mydf[!outlierscheck, ]
-View(mydf)
+mydf_clean <- mydf[!apply(outliers, 1, any), ]
+mydfclean <- na.omit(mydf_clean)
+print(mydfclean)
+View(mydfclean)
 
 ```
 
@@ -195,20 +191,25 @@ View(mydf)
 
 ```{r}
 #The plan is as follows:
-#1. Use summary() function to determine the mean, median, quartiles, variance, and standard dev. of the numerical variables,
+#a. Use summary() function to determine the mean, median, quartiles, variance, and standard dev. of the numerical variables,
+#use a function to determine whether the variable type of each variable i.e. continuous or cateogrical (Kabacoff, 2022)
 #as well as the frequency count and mode of categorical variables using the table() and mode() (after installing the DescTools package). Because table() and mode() work on vectors and not dataframes; use the sapply() function to apply them to each column of the dataframe. (Kabacoff R.I, 2022)
-#the correlation coefficients will be calculated using the rcorr() function in the Hmisc package which includes significance levels.
-#(Mount J., 2019)
-#2. visualise the distribution, relationships, and interactions of and between variables in the dataset. 
+
+
+
+#b.1 visualise the distribution, relationships, and interactions of and between variables in the dataset. 
 #hist() function generates histograms 
 #barplot() function generates bar charts 
 #boxplot() function generates bar charts (Kabacoff R.I, 2022)
-***
+
+#***
+#b.2
 #plot() function generates scatterplots
 #cor() function generates a correlation matrix
 #pheatmap() function (which can be used after installing pheatmap package generates heatmaps for correlation matrices. (Peng R.D, 2016),
 #ggpairs() function (from the GGally package) is used to generare pair plots. (Mount J. & Zumel, 2019)
-#3. #Using the IQR method outlined by Kabacoff, I will first install the datasets package, then find the first and third quartile difference using the quantile() function. 
+
+#c. #Using the IQR method outlined by Kabacoff, I will first install the datasets package, then find the first and third quartile difference using the quantile() function. 
 #Any values that fall 1.5 times the IQR above the first quartile or below the third quartile is an outlier/anomaly which could affect the distribution of the dependent variables. (Kabacoff R.I, 2022)
 ```
 
@@ -216,54 +217,183 @@ View(mydf)
 *100 words
 
 ```{r}
+#a.1
+summary(mydfclean)
+head(mydfclean)
+str(mydfclean)
 
-#the correlation coefficients will be calculated using the rcorr() function in the Hmisc package which includes significance levels.
-#(Mount J., 2019)
+# Define a function to determine variable types
+get_variable_types <- function(df) {
+  # Apply a function to each column to determine if it is numeric or factor/character
+  types <- sapply(df, function(col) {
+    if (is.numeric(col)) {
+      return("Continuous")
+    } else if (is.factor(col) || is.character(col)) {
+      return("Categorical")
+    } else {
+      return("Other")
+    }
+  })
+  
+  # Convert the result to a dataframe for better readability
+  types_df <- data.frame(Variable = names(types), Type = types, stringsAsFactors = FALSE)
+  
+  return(types_df)
+}
 
-#1.1
-summary(mydf)
-head(mydf)
+# Example usage with your dataframe 'mydfclean'
+variable_types <- get_variable_types(mydfclean)
+print(variable_types)
 
-frequency_count <- sapply(mydf, table)
+
+frequency_count <- sapply(mydfclean, table)
 print(frequency_count)
 
-mode_results <- sapply(mydf, Mode)
+mode_results <- sapply(mydfclean, Mode)
 print(mode_results)
 
-#1.2
-rcorrmatrix <- rcorr(as.matrix(mydf))
-print(rcorrmatrix)
+
+
+#b.1
+#Univeriate analysis for each variable
+#summarise and visualise each variable
+#histograms and boxplots for numeric
+# Isolate numeric columns using base R
+
+numeric_data <- mydfclean[sapply(mydfclean, is.numeric)]
+
+par(mfrow = c(3, 3))  # Adjust the layout to fit multiple plots on one screen
+for (col_name in colnames(numeric_data)) {
+  hist(numeric_data[[col_name]], main = paste("Histogram of", col_name), xlab = col_name, col = "lightblue", border = "black")
+}
+
+
+#b.1b
+#barplots for categorical
+# Extract categorical columns
+categorical_data <- mydfclean[sapply(mydfclean, function(x) is.character(x) | is.factor(x))]
+
+# View the structure of the categorical data
+str(categorical_data)
+
+# Generate bar plots for all categorical columns
+par(mfrow = c(3, 3))  # Adjust the layout to fit multiple plots on one screen
+
+for (col_name in colnames(categorical_data)) {
+  barplot(table(categorical_data[[col_name]]), main = paste("Barplot of", col_name), xlab = col_name, ylab = "Frequency", col = "lightblue", border = "black")
+}
+
+#b.2
+
+#Calculate the correlation matrix
+corr_matrix <- cor(numeric_data, use = "complete.obs")
+View(corr_matrix)
+
+# Generate heatmap for the correlation matrix
+pheatmap(corr_matrix, 
+         main = "Correlation Matrix Heatmap", 
+         color = colorRampPalette(c("blue", "white", "red"))(50), 
+         border_color = NA, 
+         display_numbers = TRUE, 
+         number_color = "black")
+
+# Generate the ggpairs plot
+ggpairs(numeric_data)
+
+
+#c. 
+#We check for outliers again using the same method as in the data quality analysis
+#this time applied to the cleaned dataframe
+outliersearch <- function(x) {
+  firstquantile <- quantile(x, 0.25, na.rm = TRUE)
+  thirdquantile <- quantile(x, 0.75, na.rm = TRUE)
+  InterQR <- thirdquantile - firstquantile
+  return(x < (firstquantile - 1.5 * InterQR) | x > (thirdquantile + 1.5 * InterQR))
+}
+
+outliers <- sapply(mydfclean %>% select(where(is.numeric)), outliersearch)
+print(outliers)
+
+
+count_true_positions <- function(outlier_matrix) {
+  result <- list()
   
-
-
+  for (col in colnames(outlier_matrix)) {
+    true_positions <- which(outlier_matrix[, col])
+    count_true <- length(true_positions)
+    result[[col]] <- list(count = count_true, positions = true_positions)
+  }
   
+  return(result)
+}
 
+# Apply the function to the outliers matrix
+true_counts_positions <- count_true_positions(outliers)
 
-#2. visualise the distribution, relationships, and interactions of and between variables in the dataset. 
-#hist() function generates histograms 
-#barplot() function generates bar charts 
-#boxplot() function generates bar charts (Kabacoff R.I, 2022)
+# Print the results
+print(true_counts_positions)
 
-#plot() function generates scatterplots
-#cor() function generates a correlation matrix
-#pheatmap() function (which can be used after installing pheatmap package generates heatmaps for correlation matrices. (Peng R.D, 2016),
-
-#ggpairs() function (from the GGally package) is used to generare pair plots. (Mount J. & Zumel, 2019)
-
-
-#3. #Using the IQR method outlined by Kabacoff, I will first install the datasets package, then find the first and third quartile difference using the quantile() function. 
-#Any values that fall 1.5 times the IQR above the first quartile or below the third quartile is an outlier/anomaly which could affect the distribution of the dependent variables. (Kabacoff R.I, 2022)
 ```
 
 
 ## 2.3 EDA summary of results
 
-*Provide a concise summary of your findings (5 marks) (Max 300 words)*
+```{r}
+
+#Descriptive Statistics:
+#Price: Rental prices range from 3.91 to 5.70 (log-transformed values), mean = 4.85. 
+
+#Property Types: There are 4 apartments , a condominium , and a house 
+
+#Guest Capacity: Properties accommodate between 1 to 8 guests, with a median of 4.5,.
+
+#Bathrooms and Bedrooms: Most properties have 1-2 bathrooms and 1-4 bedrooms, with a median of 1.5 bedrooms, suitable for small to medium-sized groups.
+
+
+#Reviews and Ratings: The number of reviews ranges from 3 to 80, with ratings between 84 and 100, indicating generally high satisfaction levels.
+
+
+#Univariate Analysis:
+#Histograms + Boxplots (Continuous data): Visualizations of numeric variables such as price, number_reviews, and rating reveal that most properties are moderately priced, receive a varying number of reviews, and maintain high ratings.
+
+#Barplots (Categorical Data):
+#Instant Booking: Most properties do not offer instant booking, with 4 out of 6 being non-instant.
+
+#Cleaning Fee: The majority charge a cleaning fee (5 out of 6), which is a common practice in rental properties.
+
+#Cancellation Policy: Flexible or moderate cancellation policies are more common (4 out of 6), offering renters more flexibility.
+
+
+#Correlation Analysis:
+#The correlation matrix heatmap shows significant relationships between:
+#Price and Rating: A moderate positive correlation indicates that higher-rated properties tend to have higher prices.
+
+#Number of Reviews and Guest Capacity: Larger properties tend to have more reviews, possibly due to hosting more guests over time and increasing the probability of review, as some guests do not bother to review but tend to if thoroughly satisfied.
+
+
+#Outlier Detection:
+#Bathrooms: One property with an unusually high number of bathrooms.
+
+#Number of Reviews: A property with significantly more reviews than others.
+
+
+#Host Since: One host started significantly earlier than others, possibly indicating more experience or longevity in the market.
+
+```
 
 ## 2.4 Additional insights and issues
 
-*Highlight potential further issues or insights uncovered in 2.2.  This might include follow up to findings from your initial EDA.  We accept that the boundary between 2.2 and 2.3 is somewhat arbitrary so use your judgement and maximise good structure and readability. (5 marks) (Max 200 words)*
+```{r}
 
+#1.	Rental Pricing and Quality: The analysis indicates that higher-rated properties tend to command higher rental prices. This suggests that investing in property quality could lead to higher revenue.
+#2.	Guest Capacity and Popularity: Properties that can accommodate more guests receive more reviews, possibly due to higher occupancy rates. This highlights the market demand for larger rental spaces.
+The median is 4.5. This suggests that half of the properties in the dataset can accommodate 4 or fewer guests, while the other half can accommodate 5 or more guests. Since you can't have half a guest, the median of 4.5 likely arises from the fact that some properties can accommodate 4 guests while others can accommodate 5 guests.
+#3.	Cleaning Fees and Booking Policies: The prevalence of cleaning fees and flexible cancellation policies aligns with common industry practices aimed at maintaining property standards and accommodating renter preferences.
+#4.	Property Types. The mode is the apartments I.e. most of the rental properties in the dataset are apartments.
+#5.	Price. Mean of 4.85 suggests most properties are moderately priced, with a few higher-end rentals.
+#6. At this stage the outliers do not suggest an issue with data quality but rather provide insight in context.
+
+```
 
 # 3. Modelling
 
@@ -271,10 +401,37 @@ print(rcorrmatrix)
 
 *The aim of the analysis is to model rental prices. Outline and justify an analysis plan (don't include or repeat the data cleaning and EDA plan) to address the aim that incorporates/references any findings from the data cleaning (1.4) and EDA (2.3, 2.4)  (5 marks). (Max 200 words)*
 
+#Scatterplots to show the relationship outlined by the heatmap and correlation plots more clearly
+#plot() function generates scatterplots
+
+
 ## 3.2 Build a model for rental price
 *Use R to build a suitable model for rental prices on your data (dependent variable is price) (5 marks). (Max 100 words)*  
 *NB Submissions where suitable models do not have good fit due to the nature of the data will not be penalised.*  
 
+```{r}
+
+# Generate scatterplot matrix
+pairs(numeric_data, main="Scatterplot Matrix of Numeric Variables")
+
+# Generate individual scatterplots for all pairs of numeric columns
+par(mfrow = c(3, 3))  # Adjust layout to fit multiple plots on one screen
+num_cols <- colnames(numeric_data)
+
+for (i in 1:(length(num_cols) - 1)) {
+  for (j in (i + 1):length(num_cols)) {
+    plot(numeric_data[[num_cols[i]]], numeric_data[[num_cols[j]]], 
+         main = paste("Scatterplot of", num_cols[i], "vs", num_cols[j]), 
+         xlab = num_cols[i], ylab = num_cols[j], 
+         col = "blue", pch = 19)
+    
+    # Fit linear model and add regression line
+    model <- lm(numeric_data[[num_cols[j]]] ~ numeric_data[[num_cols[i]]])
+    abline(model, col = "red", lwd = 2)
+  }
+}
+
+```
 
 ## 3.3 Critique model using relevant diagnostics
 
